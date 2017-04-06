@@ -294,8 +294,6 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 		if !hasNext {
 			break
 		}
-
-		break
 	}
 
 	var mutex = &sync.Mutex{}
