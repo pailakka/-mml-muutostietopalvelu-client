@@ -64,7 +64,7 @@ func main() {
 					panic("Dest required")
 				}
 
-				os.MkdirAll(dest, 0664)
+				os.MkdirAll(dest, 0755)
 
 				loadProductToDest(product, version, format, dest, force)
 

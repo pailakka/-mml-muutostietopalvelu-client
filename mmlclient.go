@@ -309,7 +309,7 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 
 	for _, e := range entries {
 		mutex.Lock()
-		os.MkdirAll(e.DestinationPath, 0664)
+		os.MkdirAll(e.DestinationPath, 0755)
 		if eOldUpdated, ok := status.EntryUpdated[e.ID]; ok {
 			if force || e.Updated.After(eOldUpdated) {
 				wg.Add(1)
