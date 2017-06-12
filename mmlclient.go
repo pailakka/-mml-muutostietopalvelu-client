@@ -271,24 +271,37 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 		}
 
 		for _, e := range feed.Entries {
+			for _, l := range e.Links {
 
-			me := mmlEntry{}
-			me.ID = e.ID
-			me.Title = e.Title
-			me.Updated = *e.UpdatedParsed
-			me.Link = e.Links[0].Href
-			me.Size, err = strconv.ParseInt(e.Links[0].Length, 10, 64)
+				me := mmlEntry{}
+				me.ID = e.ID
+				if l.Title != "" {
+					me.Title = l.Title
+				} else {
+					me.Title = e.Title
+				}
+				me.Updated = *e.UpdatedParsed
+				me.Link = l.Href
+				if l.Length != "" {
+					me.Size, err = strconv.ParseInt(l.Length, 10, 64)
 
-			if err != nil {
-				panic(err)
+					if err != nil {
+						panic(err)
+					}
+				}
+				me.Type = l.Type
+
+				dpath := strings.Replace(e.ID, "urn:path:", "", -1)
+				me.DestinationPath, _ = path.Split(dpath)
+				me.DestinationFile = me.Title
+				me.DestinationPath = path.Join(dest, me.DestinationPath)
+				if _, err := os.Stat(path.Join(me.DestinationPath, me.DestinationFile)); os.IsNotExist(err) {
+					entries = append(entries, me)
+				} else {
+					log15.Info("entry exists", "entry", me.Title, "updated", me.Updated, "took", time.Since(me.Start), "size", me.DiskSize)
+				}
+
 			}
-
-			me.Type = e.Links[0].Type
-
-			dpath := strings.Replace(e.ID, "urn:path:", "", -1)
-			me.DestinationPath, me.DestinationFile = path.Split(dpath)
-			me.DestinationPath = path.Join(dest, me.DestinationPath)
-			entries = append(entries, me)
 		}
 
 		if !hasNext {
