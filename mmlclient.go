@@ -305,11 +305,8 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 				me.DestinationPath, _ = path.Split(dpath)
 				me.DestinationFile = me.Title
 				me.DestinationPath = path.Join(dest, me.DestinationPath)
-				if _, err := os.Stat(path.Join(me.DestinationPath, me.DestinationFile)); os.IsNotExist(err) {
-					entries = append(entries, me)
-				} else {
-					log15.Info("entry exists", "entry", me.Title, "updated", me.Updated, "took", time.Since(me.Start), "size", me.DiskSize)
-				}
+
+				entries = append(entries, me)
 
 			}
 		}
