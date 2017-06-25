@@ -97,7 +97,12 @@ func entryDownloader(dlentry <-chan mmlEntry, readyentry chan<- mmlEntry, twg *s
 			log15.Error(err.Error())
 		}
 
-		resp, err := http.Get(e.Link)
+		timeout := time.Duration(120 * time.Second)
+		client := http.Client{
+			Timeout: timeout,
+		}
+
+		resp, err := client.Get(e.Link)
 
 		if err != nil {
 			resp.Body.Close()
@@ -248,8 +253,13 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 
 		log15.Debug("loadProductToDest", "url", producturl)
 
+		timeout := time.Duration(120 * time.Second)
+		client := http.Client{
+			Timeout: timeout,
+		}
+
 		fp := atom.Parser{}
-		resp, err := http.Get(producturl)
+		resp, err := client.Get(producturl)
 		if err != nil {
 			panic(err)
 		}
