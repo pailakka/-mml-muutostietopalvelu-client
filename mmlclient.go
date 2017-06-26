@@ -251,7 +251,7 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 	var entries []mmlEntry
 	for {
 
-		log15.Debug("loadProductToDest", "url", producturl)
+		log15.Debug("loadProductToDest", "nentries", len(entries), "url", producturl)
 
 		timeout := time.Duration(120 * time.Second)
 		client := http.Client{
@@ -316,6 +316,8 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 		}
 	}
 
+	log15.Info("loadProductToDest entries done", "nentries", len(entries))
+
 	var mutex = &sync.Mutex{}
 
 	go func() {
@@ -328,9 +330,16 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 	}()
 
 	for _, e := range entries {
+
+		if _, err := os.Stat(e.DestinationPath); os.IsNotExist(err) {
+			os.MkdirAll(e.DestinationPath, 0755)
+			log15.Info("path created", "path", e.DestinationPath)
+		}
+
 		mutex.Lock()
-		os.MkdirAll(e.DestinationPath, 0755)
-		if eOldUpdated, ok := status.EntryUpdated[e.ID]; ok {
+		eOldUpdated, ok := status.EntryUpdated[e.ID]
+		mutex.Unlock()
+		if ok {
 			if force || e.Updated.After(eOldUpdated) {
 				wg.Add(1)
 				entryQueue <- e
@@ -339,7 +348,6 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 			wg.Add(1)
 			entryQueue <- e
 		}
-		mutex.Unlock()
 
 	}
 
