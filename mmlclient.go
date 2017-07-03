@@ -70,6 +70,7 @@ var wg sync.WaitGroup
 func init() {
 	viper.SetConfigName("mmlclient")
 	viper.AddConfigPath(".")
+	viper.AddConfigPath("$HOME")
 	err := viper.ReadInConfig()
 	if err != nil {
 		panic(fmt.Errorf("Fatal error config file: %s \n", err))
@@ -356,7 +357,8 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 	log15.Info("ALL IS DONE")
 
 	updated.Status[pck] = status
-
+	mutex.Lock()
 	saveUpdatedInfoToDir(updated, dest)
+	mutex.Unlock()
 	return err
 }
