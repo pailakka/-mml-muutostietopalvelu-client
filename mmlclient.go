@@ -68,7 +68,7 @@ var numWorkers int
 var wg sync.WaitGroup
 
 func init() {
-	viper.SetConfigName("config")
+	viper.SetConfigName("mmlclient")
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
