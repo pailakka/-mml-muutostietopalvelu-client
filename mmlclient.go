@@ -79,7 +79,7 @@ func init() {
 	atomBase = viper.GetString("atom_url")
 	numWorkers = viper.GetInt("num_workers")
 
-	entryQueue = make(chan mmlEntry, 5000)
+	entryQueue = make(chan mmlEntry, 500000)
 	entryReady = make(chan mmlEntry)
 
 	for i := 0; i < numWorkers; i++ {
