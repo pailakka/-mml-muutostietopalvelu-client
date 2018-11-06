@@ -17,8 +17,51 @@ func main() {
 
 	app.Commands = []cli.Command{
 		{
-			Name:  "load",
-			Usage: "load the whole product",
+			Name:         "load",
+			ShortName:    "",
+			Aliases:      nil,
+			Usage:        "load the whole product",
+			UsageText:    "",
+			Description:  "",
+			ArgsUsage:    "",
+			Category:     "",
+			BashComplete: nil,
+			Before:       nil,
+			After:        nil,
+			Action: func(c *cli.Context) error {
+				product := c.String("product")
+				version := c.String("type")
+				format := c.String("format")
+				dest := c.String("destination")
+				force := c.Bool("force")
+				onlymissing := c.Bool("missing")
+
+				if product == "" {
+					panic("Product required")
+				}
+
+				if version == "" {
+					panic("Version required")
+				}
+
+				if format == "" {
+					panic("Format required")
+				}
+
+				if dest == "" {
+					panic("Dest required")
+				}
+
+				os.MkdirAll(dest, 0755)
+
+				loadProductToDest(product, version, format, dest, force, onlymissing)
+
+				fmt.Println(product)
+
+				return nil
+			},
+			OnUsageError: nil,
+			Subcommands:  nil,
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "product, p",
@@ -40,38 +83,18 @@ func main() {
 					Name:  "force",
 					Usage: "force load all items",
 				},
+				cli.BoolFlag{
+					Name:  "missing",
+					Usage: "load only missing items",
+				},
 			},
-			Action: func(c *cli.Context) error {
-				product := c.String("product")
-				version := c.String("type")
-				format := c.String("format")
-				dest := c.String("destination")
-				force := c.Bool("force")
-
-				if product == "" {
-					panic("Product required")
-				}
-
-				if version == "" {
-					panic("Version required")
-				}
-
-				if format == "" {
-					panic("Format required")
-				}
-
-				if dest == "" {
-					panic("Dest required")
-				}
-
-				os.MkdirAll(dest, 0755)
-
-				loadProductToDest(product, version, format, dest, force)
-
-				fmt.Println(product)
-
-				return nil
-			},
+			SkipFlagParsing:        false,
+			SkipArgReorder:         false,
+			HideHelp:               false,
+			Hidden:                 false,
+			UseShortOptionHandling: false,
+			HelpName:               "",
+			CustomHelpTemplate:     "",
 		},
 		{
 			Name:  "list",

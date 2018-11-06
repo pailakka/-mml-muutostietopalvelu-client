@@ -229,7 +229,7 @@ func saveUpdatedInfoToDir(updated cacheStatus, dest string) (err error) {
 	return err
 }
 
-func loadProductToDest(product, version, format, dest string, force bool) (err error) {
+func loadProductToDest(product, version, format, dest string, force, onlymissing bool) (err error) {
 	updated, err := loadUpdatedInfoFromDir(dest)
 	pck := cacheKey{product, version, format}
 
@@ -306,6 +306,13 @@ func loadProductToDest(product, version, format, dest string, force bool) (err e
 				me.DestinationPath, _ = path.Split(dpath)
 				me.DestinationFile = me.Title
 				me.DestinationPath = path.Join(dest, me.DestinationPath)
+
+				if onlymissing {
+					if _, err := os.Stat(path.Join(me.DestinationPath, me.DestinationFile)); !os.IsNotExist(err) {
+						log15.Debug("loadProductToDest", "entry exists", path.Join(me.DestinationPath, me.DestinationFile))
+						continue
+					}
+				}
 
 				entries = append(entries, me)
 
