@@ -33,6 +33,7 @@ func main() {
 				version := c.String("type")
 				format := c.String("format")
 				dest := c.String("destination")
+				fromdate := c.String("fromdate")
 				force := c.Bool("force")
 				onlymissing := c.Bool("missing")
 
@@ -52,10 +53,17 @@ func main() {
 					panic("Dest required")
 				}
 
-				os.MkdirAll(dest, 0755)
+				if fromdate == "" {
+					fromdate = "1990-06-20T00:00:00"
+				}
 
-				loadProductToDest(product, version, format, dest, force, onlymissing)
+				_ = os.MkdirAll(dest, 0755)
 
+				err := loadProductToDest(product, version, format, dest, force, onlymissing, fromdate)
+				if err != nil {
+					log15.Error("Unable to load product")
+					panic(err)
+				}
 				fmt.Println(product)
 
 				return nil
@@ -79,6 +87,10 @@ func main() {
 					Name:  "destination, d",
 					Usage: "destination path",
 				},
+				cli.StringFlag{
+					Name:  "fromdate, fd",
+					Usage: "load from date. Format: 2019-03-22T00:00:00Z",
+				},
 				cli.BoolFlag{
 					Name:  "force",
 					Usage: "force load all items",
@@ -88,13 +100,12 @@ func main() {
 					Usage: "load only missing items",
 				},
 			},
-			SkipFlagParsing:        false,
-			SkipArgReorder:         false,
-			HideHelp:               false,
-			Hidden:                 false,
-			UseShortOptionHandling: false,
-			HelpName:               "",
-			CustomHelpTemplate:     "",
+			SkipFlagParsing:    false,
+			SkipArgReorder:     false,
+			HideHelp:           false,
+			Hidden:             false,
+			HelpName:           "",
+			CustomHelpTemplate: "",
 		},
 		{
 			Name:  "list",

@@ -229,7 +229,7 @@ func saveUpdatedInfoToDir(updated cacheStatus, dest string) (err error) {
 	return err
 }
 
-func loadProductToDest(product, version, format, dest string, force, onlymissing bool) (err error) {
+func loadProductToDest(product, version, format, dest string, force, onlymissing bool, fromdate string) (err error) {
 	updated, err := loadUpdatedInfoFromDir(dest)
 	pck := cacheKey{product, version, format}
 
@@ -242,8 +242,14 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 	updtime := updated.Status[pck].CacheUpdated
 
 	if force {
-		updtime = time.Date(1990, time.June, 20, 0, 0, 0, 0, time.UTC)
+		updtime, err = time.Parse(time.RFC3339, fromdate)
+		if err != nil {
+			log15.Error("Unable to parse forced from date")
+			panic(err)
+		}
+
 	}
+	log15.Debug("loadProductToDest", "updtime", updtime)
 
 	producturl := getAtomURL(product, version, map[string]string{"format": format, "updated": updtime.Format("2006-01-02T15:04:05")}).String()
 
