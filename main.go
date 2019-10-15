@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/inconshreveable/log15"
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
@@ -61,7 +61,7 @@ func main() {
 
 				err := loadProductToDest(product, version, format, dest, force, onlymissing, fromdate)
 				if err != nil {
-					log15.Error("Unable to load product")
+					log.Fatal("Unable to load product")
 					panic(err)
 				}
 				fmt.Println(product)
@@ -111,7 +111,7 @@ func main() {
 			Name:  "list",
 			Usage: "list available products",
 			Action: func(c *cli.Context) error {
-				log15.Info("Listing available products")
+				log.Info("Listing available products")
 
 				products, err := loadProductsList()
 
@@ -131,6 +131,9 @@ func main() {
 			},
 		},
 	}
-	app.Run(os.Args)
+	err := app.Run(os.Args)
 
+	if err != nil {
+		panic(err)
+	}
 }
