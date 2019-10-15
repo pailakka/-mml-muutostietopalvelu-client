@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,9 +18,9 @@ import (
 
 	"sync"
 
-	"github.com/inconshreveable/log15"
 	"github.com/mmcdole/gofeed"
 	"github.com/mmcdole/gofeed/atom"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -43,6 +45,7 @@ type mmlEntry struct {
 	DestinationFile string
 	Start           time.Time
 	DiskSize        int64
+	RetryCount      int16
 }
 
 type cacheKey struct {
@@ -88,17 +91,18 @@ func init() {
 	}
 }
 
-func entryDownloader(dlentry <-chan mmlEntry, readyentry chan<- mmlEntry, twg *sync.WaitGroup) {
+func entryDownloader(dlentry chan mmlEntry, readyentry chan<- mmlEntry, twg *sync.WaitGroup) {
 
 	for e := range dlentry {
 		e.Start = time.Now()
-		df, err := os.Create(path.Join(e.DestinationPath, e.DestinationFile))
+		destinationFilename := path.Join(e.DestinationPath, e.DestinationFile)
+		df, err := os.Create(destinationFilename)
 		if err != nil {
 			df.Close()
-			log15.Error(err.Error())
+			log.Error(err.Error())
 		}
 
-		timeout := time.Duration(120 * time.Second)
+		timeout := 120 * time.Second
 		client := http.Client{
 			Timeout: timeout,
 		}
@@ -107,20 +111,36 @@ func entryDownloader(dlentry <-chan mmlEntry, readyentry chan<- mmlEntry, twg *s
 
 		if err != nil {
 			resp.Body.Close()
-			log15.Error(err.Error())
+			log.Error(err.Error())
 		}
 		n, err := io.Copy(df, resp.Body)
 
 		if err != nil {
 			df.Close()
 			resp.Body.Close()
-			log15.Error(err.Error())
+			log.Error(err.Error())
 		}
 		e.DiskSize = n
 		df.Close()
 		resp.Body.Close()
 
-		readyentry <- e
+		err = verifyZipfile(destinationFilename)
+		if err != nil {
+			if e.RetryCount < 5 {
+				log.Error("Failed to verify zipfile, retrying", "retrycount", e.RetryCount, "filename", destinationFilename, "error", err)
+				e.RetryCount = e.RetryCount + 1
+				dlentry <- e
+				return
+			} else {
+				log.Error("Failed to verify zipfile, deleting", "retrycount", e.RetryCount, "filename", destinationFilename, "error", err)
+				err = os.Remove(destinationFilename)
+				if err != nil {
+					log.Error("Error deleting file", "filename", destinationFilename, "error", err)
+				}
+			}
+		} else {
+			readyentry <- e
+		}
 
 		(*twg).Done()
 	}
@@ -153,7 +173,7 @@ func getAtomURL(product, version string, params map[string]string) *url.URL {
 func loadProductsList() (products []mmlProduct, err error) {
 	listurl := getAtomURL("", "", map[string]string{})
 
-	log15.Debug("loadProductsList", "listurl", listurl)
+	log.Debug("loadProductsList", "listurl", listurl)
 
 	fp := gofeed.NewParser()
 	feed, err := fp.ParseURL(listurl.String())
@@ -244,21 +264,21 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 	if force {
 		updtime, err = time.Parse(time.RFC3339, fromdate)
 		if err != nil {
-			log15.Error("Unable to parse forced from date")
+			log.Error("Unable to parse forced from date")
 			panic(err)
 		}
 
 	}
-	log15.Debug("loadProductToDest", "updtime", updtime)
+	log.Debug("loadProductToDest", "updtime", updtime)
 
-	producturl := getAtomURL(product, version, map[string]string{"format": format, "updated": updtime.Format("2006-01-02T15:04:05")}).String()
+	producturl := getAtomURL(product, version, map[string]string{"format": format, "updated": "1990-06-20T00:00:00"}).String()
 
 	status.CacheUpdated = time.Now()
 
 	var entries []mmlEntry
 	for {
 
-		log15.Debug("loadProductToDest", "nentries", len(entries), "url", producturl)
+		log.Debug("loadProductToDest", "nentries", len(entries), "url", producturl)
 
 		timeout := time.Duration(120 * time.Second)
 		client := http.Client{
@@ -313,9 +333,16 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 				me.DestinationFile = me.Title
 				me.DestinationPath = path.Join(dest, me.DestinationPath)
 
-				if onlymissing {
-					if _, err := os.Stat(path.Join(me.DestinationPath, me.DestinationFile)); !os.IsNotExist(err) {
-						log15.Debug("loadProductToDest", "entry exists", path.Join(me.DestinationPath, me.DestinationFile))
+				_, statErr := os.Stat(path.Join(me.DestinationPath, me.DestinationFile))
+				fileExists := os.IsNotExist(statErr)
+
+				if fileExists {
+					if onlymissing {
+						log.Debug("loadProductToDest", "entry exists", path.Join(me.DestinationPath, me.DestinationFile))
+						continue
+					}
+					if me.Updated.Before(updtime) {
+						log.Debug("loadProductToDest", "entry not updated", path.Join(me.DestinationPath, me.DestinationFile))
 						continue
 					}
 				}
@@ -330,7 +357,7 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 		}
 	}
 
-	log15.Info("loadProductToDest entries done", "nentries", len(entries))
+	log.Info("loadProductToDest entries done", "nentries", len(entries))
 
 	var mutex = &sync.Mutex{}
 
@@ -339,7 +366,7 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 			mutex.Lock()
 			status.EntryUpdated[re.ID] = re.Updated
 			mutex.Unlock()
-			log15.Info("entry ready", "entry", re.Title, "updated", re.Updated, "took", time.Since(re.Start), "size", re.DiskSize)
+			log.Info("entry ready", "entry", re.Title, "updated", re.Updated, "took", time.Since(re.Start), "size", re.DiskSize)
 		}
 	}()
 
@@ -347,7 +374,7 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 
 		if _, err := os.Stat(e.DestinationPath); os.IsNotExist(err) {
 			os.MkdirAll(e.DestinationPath, 0755)
-			log15.Info("path created", "path", e.DestinationPath)
+			log.Info("path created", "path", e.DestinationPath)
 		}
 
 		mutex.Lock()
@@ -367,11 +394,30 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 
 	wg.Wait()
 
-	log15.Info("ALL IS DONE")
+	log.Info("ALL IS DONE")
 
 	updated.Status[pck] = status
 	mutex.Lock()
 	saveUpdatedInfoToDir(updated, dest)
 	mutex.Unlock()
+	return err
+}
+
+func verifyZipfile(filename string) (err error) {
+	// Open a zip archive for reading.
+	r, err := zip.OpenReader(filename)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	var totalSize int64
+	for _, f := range r.File {
+		totalSize += f.FileInfo().Size()
+	}
+
+	if totalSize < 10 {
+		return errors.New("Too small file to be correct.")
+	}
 	return err
 }
