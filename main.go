@@ -61,7 +61,7 @@ func main() {
 
 				err := loadProductToDest(product, version, format, dest, force, onlymissing, fromdate)
 				if err != nil {
-					log.Error("Unable to load product")
+					log.Fatal("Unable to load product")
 					panic(err)
 				}
 				fmt.Println(product)

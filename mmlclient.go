@@ -35,17 +35,19 @@ type mmlProduct struct {
 }
 
 type mmlEntry struct {
-	ID              string
-	Title           string
-	Updated         time.Time
-	Link            string
-	Size            int64
-	Type            string
-	DestinationPath string
-	DestinationFile string
-	Start           time.Time
-	DiskSize        int64
-	RetryCount      int16
+	ID               string
+	Title            string
+	Updated          time.Time
+	Link             string
+	Size             int64
+	Type             string
+	DestinationPath  string
+	DestinationFile  string
+	Start            time.Time
+	DiskSize         int64
+	UncompressedSize int64
+	RetryCount       int16
+	Exists           bool
 }
 
 type cacheKey struct {
@@ -124,25 +126,32 @@ func entryDownloader(dlentry chan mmlEntry, readyentry chan<- mmlEntry, twg *syn
 		df.Close()
 		resp.Body.Close()
 
-		err = verifyZipfile(destinationFilename)
+		uncompSize, err := verifyZipfile(destinationFilename)
+		e.UncompressedSize = uncompSize
 		if err != nil {
+			logCtx := log.WithFields(log.Fields{
+				"retrycount": e.RetryCount,
+				"filename":   destinationFilename,
+				"error":      err,
+			})
+			err = os.Remove(destinationFilename)
+			if err != nil {
+				logCtx.Error("Error deleting file")
+			}
+
 			if e.RetryCount < 5 {
-				log.Error("Failed to verify zipfile, retrying", "retrycount", e.RetryCount, "filename", destinationFilename, "error", err)
+				logCtx.Error("Failed to verify zipfile, retrying")
 				e.RetryCount = e.RetryCount + 1
 				dlentry <- e
-				return
 			} else {
-				log.Error("Failed to verify zipfile, deleting", "retrycount", e.RetryCount, "filename", destinationFilename, "error", err)
-				err = os.Remove(destinationFilename)
-				if err != nil {
-					log.Error("Error deleting file", "filename", destinationFilename, "error", err)
-				}
+				logCtx.Error("Failed to verify zipfile, deleting")
+				(*twg).Done()
 			}
 		} else {
 			readyentry <- e
+			(*twg).Done()
 		}
 
-		(*twg).Done()
 	}
 }
 
@@ -173,7 +182,7 @@ func getAtomURL(product, version string, params map[string]string) *url.URL {
 func loadProductsList() (products []mmlProduct, err error) {
 	listurl := getAtomURL("", "", map[string]string{})
 
-	log.Debug("loadProductsList", "listurl", listurl)
+	log.WithField("listurl", listurl).Debug("loadProductsList")
 
 	fp := gofeed.NewParser()
 	feed, err := fp.ParseURL(listurl.String())
@@ -264,7 +273,7 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 	if force {
 		updtime, err = time.Parse(time.RFC3339, fromdate)
 		if err != nil {
-			log.Error("Unable to parse forced from date")
+			log.WithField("fromdata", fromdate).Error("Unable to parse forced from date")
 			panic(err)
 		}
 
@@ -278,7 +287,10 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 	var entries []mmlEntry
 	for {
 
-		log.Debug("loadProductToDest", "nentries", len(entries), "url", producturl)
+		log.WithFields(log.Fields{
+			"nentries": len(entries),
+			"url":      producturl,
+		}).Debug("loadProductToDest")
 
 		timeout := time.Duration(120 * time.Second)
 		client := http.Client{
@@ -334,17 +346,21 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 				me.DestinationPath = path.Join(dest, me.DestinationPath)
 
 				_, statErr := os.Stat(path.Join(me.DestinationPath, me.DestinationFile))
-				fileExists := os.IsNotExist(statErr)
+				fileExists := !os.IsNotExist(statErr)
 
 				if fileExists {
+					logCtx := log.WithFields(log.Fields{
+						"path": path.Join(me.DestinationPath, me.DestinationFile),
+					})
 					if onlymissing {
-						log.Debug("loadProductToDest", "entry exists", path.Join(me.DestinationPath, me.DestinationFile))
+						logCtx.Debug("loadProductToDest ", "entry exists")
 						continue
 					}
 					if me.Updated.Before(updtime) {
-						log.Debug("loadProductToDest", "entry not updated", path.Join(me.DestinationPath, me.DestinationFile))
+						logCtx.Debug("loadProductToDes t", "entry not updated")
 						continue
 					}
+					me.Exists = true
 				}
 
 				entries = append(entries, me)
@@ -357,7 +373,7 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 		}
 	}
 
-	log.Info("loadProductToDest entries done", "nentries", len(entries))
+	log.WithField("nentries", len(entries)).Info("loadProductToDest entries done")
 
 	var mutex = &sync.Mutex{}
 
@@ -366,22 +382,29 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 			mutex.Lock()
 			status.EntryUpdated[re.ID] = re.Updated
 			mutex.Unlock()
-			log.Info("entry ready", "entry", re.Title, "updated", re.Updated, "took", time.Since(re.Start), "size", re.DiskSize)
+			log.WithFields(log.Fields{
+				"entry":        re.Title,
+				"updated":      re.Updated,
+				"took":         time.Since(re.Start),
+				"size":         re.DiskSize,
+				"uncompressed": re.UncompressedSize,
+			}).Info("entry ready")
 		}
 	}()
 
 	for _, e := range entries {
-
 		if _, err := os.Stat(e.DestinationPath); os.IsNotExist(err) {
 			os.MkdirAll(e.DestinationPath, 0755)
-			log.Info("path created", "path", e.DestinationPath)
+			log.WithFields(log.Fields{
+				"path": e.DestinationPath,
+			}).Info("path created")
 		}
 
 		mutex.Lock()
 		eOldUpdated, ok := status.EntryUpdated[e.ID]
 		mutex.Unlock()
 		if ok {
-			if force || e.Updated.After(eOldUpdated) {
+			if force || e.Updated.After(eOldUpdated) || !e.Exists {
 				wg.Add(1)
 				entryQueue <- e
 			}
@@ -389,12 +412,11 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 			wg.Add(1)
 			entryQueue <- e
 		}
-
 	}
 
 	wg.Wait()
 
-	log.Info("ALL IS DONE")
+	log.Info("ALL IS DONE, len: ", len(entryQueue))
 
 	updated.Status[pck] = status
 	mutex.Lock()
@@ -403,21 +425,20 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 	return err
 }
 
-func verifyZipfile(filename string) (err error) {
+func verifyZipfile(filename string) (uncompSize int64, err error) {
 	// Open a zip archive for reading.
 	r, err := zip.OpenReader(filename)
 	if err != nil {
-		return err
+		return uncompSize, err
 	}
 	defer r.Close()
 
-	var totalSize int64
 	for _, f := range r.File {
-		totalSize += f.FileInfo().Size()
+		uncompSize += f.FileInfo().Size()
 	}
 
-	if totalSize < 10 {
-		return errors.New("Too small file to be correct.")
+	if uncompSize < 10 {
+		return uncompSize, errors.New("Too small file to be correct.")
 	}
-	return err
+	return uncompSize, err
 }
