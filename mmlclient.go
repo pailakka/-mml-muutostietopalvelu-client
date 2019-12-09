@@ -112,7 +112,9 @@ func entryDownloader(dlentry chan mmlEntry, readyentry chan<- mmlEntry, twg *syn
 		resp, err := client.Get(e.Link)
 
 		if err != nil {
-			resp.Body.Close()
+			if resp != nil {
+				resp.Body.Close()
+			}
 			log.Error(err.Error())
 		}
 		n, err := io.Copy(df, resp.Body)
@@ -217,7 +219,7 @@ func loadUpdatedInfoFromDir(dest string) (updated cacheStatus, err error) {
 	updatedFile := path.Join(dest, "updated")
 
 	if _, err := os.Stat(updatedFile); os.IsNotExist(err) {
-		return updated, err
+		return updated, nil
 	}
 
 	f, err := os.Open(updatedFile)
