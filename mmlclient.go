@@ -128,28 +128,56 @@ func entryDownloader(dlentry chan mmlEntry, readyentry chan<- mmlEntry, twg *syn
 		df.Close()
 		resp.Body.Close()
 
-		uncompSize, err := verifyZipfile(destinationFilename)
-		e.UncompressedSize = uncompSize
-		if err != nil {
-			logCtx := log.WithFields(log.Fields{
-				"retrycount": e.RetryCount,
-				"filename":   destinationFilename,
-				"error":      err,
-			})
-			err = os.Remove(destinationFilename)
-			if err != nil {
-				logCtx.Error("Error deleting file")
-			}
+		if strings.HasSuffix(destinationFilename, ".zip") {
+			uncompSize, err := verifyZipfile(destinationFilename)
+			e.UncompressedSize = uncompSize
 
-			if e.RetryCount < 5 {
-				logCtx.Error("Failed to verify zipfile, retrying")
-				e.RetryCount = e.RetryCount + 1
-				dlentry <- e
+			if err != nil {
+				logCtx := log.WithFields(log.Fields{
+					"retrycount": e.RetryCount,
+					"filename":   destinationFilename,
+					"error":      err,
+				})
+				err = os.Remove(destinationFilename)
+				if err != nil {
+					logCtx.Error("Error deleting file")
+				}
+
+				if e.RetryCount < 5 {
+					logCtx.Error("Failed to verify zipfile, retrying")
+					e.RetryCount = e.RetryCount + 1
+					dlentry <- e
+				} else {
+					logCtx.Error("Failed to verify zipfile, deleting")
+					(*twg).Done()
+				}
 			} else {
-				logCtx.Error("Failed to verify zipfile, deleting")
+				readyentry <- e
 				(*twg).Done()
 			}
 		} else {
+			fi, err := os.Stat(destinationFilename)
+			if err != nil || fi.Size() < 10 {
+				logCtx := log.WithFields(log.Fields{
+					"retrycount": e.RetryCount,
+					"filename":   destinationFilename,
+					"error":      err,
+				})
+				err = os.Remove(destinationFilename)
+				if err != nil {
+					logCtx.Error("Error deleting file")
+				}
+
+				if e.RetryCount < 5 {
+					logCtx.Error("Too small result file, retrying")
+					e.RetryCount = e.RetryCount + 1
+					dlentry <- e
+				} else {
+					logCtx.Error("Too small result file, deleting")
+					(*twg).Done()
+				}
+			}
+
 			readyentry <- e
 			(*twg).Done()
 		}
@@ -260,7 +288,7 @@ func saveUpdatedInfoToDir(updated cacheStatus, dest string) (err error) {
 	return err
 }
 
-func loadProductToDest(product, version, format, dest string, force, onlymissing bool, fromdate string) (err error) {
+func loadProductToDest(product, version, format, dest string, force, onlymissing bool, fromdate, include string) (err error) {
 	updated, err := loadUpdatedInfoFromDir(dest)
 	pck := cacheKey{product, version, format}
 
@@ -346,6 +374,14 @@ func loadProductToDest(product, version, format, dest string, force, onlymissing
 				me.DestinationPath, _ = path.Split(dpath)
 				me.DestinationFile = me.Title
 				me.DestinationPath = path.Join(dest, me.DestinationPath)
+
+				if include != "" && !strings.HasPrefix(me.DestinationFile, include) {
+					log.WithFields(log.Fields{
+						"DestinationFile": me.DestinationFile,
+						"include":         include,
+					}).Debug("loadProductToDest ", "entry starts with incorrect prefix")
+					continue
+				}
 
 				_, statErr := os.Stat(path.Join(me.DestinationPath, me.DestinationFile))
 				fileExists := !os.IsNotExist(statErr)

@@ -34,6 +34,7 @@ func main() {
 				format := c.String("format")
 				dest := c.String("destination")
 				fromdate := c.String("fromdate")
+				include := c.String("include")
 				force := c.Bool("force")
 				onlymissing := c.Bool("missing")
 
@@ -59,7 +60,7 @@ func main() {
 
 				_ = os.MkdirAll(dest, 0755)
 
-				err := loadProductToDest(product, version, format, dest, force, onlymissing, fromdate)
+				err := loadProductToDest(product, version, format, dest, force, onlymissing, fromdate, include)
 				if err != nil {
 					panic(err)
 				}
@@ -89,6 +90,10 @@ func main() {
 				cli.StringFlag{
 					Name:  "fromdate, fd",
 					Usage: "load from date. Format: 2019-03-22T00:00:00Z",
+				},
+				cli.StringFlag{
+					Name:  "include, i",
+					Usage: "Include files with this prefix",
 				},
 				cli.BoolFlag{
 					Name:  "force",
